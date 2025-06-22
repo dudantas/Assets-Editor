@@ -841,7 +841,11 @@ namespace Assets_Editor
         private void FixSpritesCount()
         {
             SpriteInfo spriteInfo = CurrentObjectAppearance.FrameGroup[(int)SprGroupSlider.Value].SpriteInfo;
-            int NumSprites = (int)(spriteInfo.PatternWidth * spriteInfo.PatternHeight * spriteInfo.PatternDepth * spriteInfo.Layers * A_SprAnimation.Value);
+            if (!A_SprAnimation.Value.HasValue)
+                A_SprAnimation.Value = 1;
+
+            int animValue = A_SprAnimation.Value.Value;
+            int NumSprites = (int)(spriteInfo.PatternWidth * spriteInfo.PatternHeight * spriteInfo.PatternDepth * spriteInfo.Layers * animValue);
 
             if (spriteInfo.SpriteId.Count > NumSprites)
             {
