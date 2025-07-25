@@ -2331,7 +2331,7 @@ namespace Assets_Editor
                     foreach (Appearance appearance in appearances.Outfit)
                     {
                         appearance.SpriteData.Clear();
-                        appearance.Id = ReserveNextId(MainWindow.appearances.Object, 1);
+                        appearance.Id = ReserveNextId(MainWindow.appearances.Outfit, 1);
                         MainWindow.appearances.Outfit.Add(appearance.Clone());
                         ThingsOutfit.Add(new ShowList() { Id = appearance.Id });
                     }
@@ -2357,7 +2357,7 @@ namespace Assets_Editor
                     
                     foreach (Appearance appearance in appearances.Effect)
                     {
-                        appearance.Id = ReserveNextId(MainWindow.appearances.Object, 1);
+                        appearance.Id = ReserveNextId(MainWindow.appearances.Effect, 1);
                         MainWindow.appearances.Effect.Add(appearance.Clone());
                         ThingsEffect.Add(new ShowList() { Id = appearance.Id });
                     }
@@ -2365,7 +2365,7 @@ namespace Assets_Editor
                     foreach (Appearance appearance in appearances.Missile)
                     {
                         appearance.SpriteData.Clear();
-                        appearance.Id = ReserveNextId(MainWindow.appearances.Object, 1);
+                        appearance.Id = ReserveNextId(MainWindow.appearances.Missile, 1);
                         MainWindow.appearances.Missile.Add(appearance.Clone());
                         ThingsMissile.Add(new ShowList() { Id = appearance.Id });
                     }
