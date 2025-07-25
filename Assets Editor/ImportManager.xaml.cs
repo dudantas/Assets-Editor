@@ -299,6 +299,11 @@ namespace Assets_Editor
             CollectionViewSource.GetDefaultView(_editor.SprListView.ItemsSource).Refresh();
         }
 
+        private uint GetNextAvailableId(List<Appearance> list, uint defaultStartId)
+        {
+            return list.Any() ? list.Max(o => o.Id) + 1 : defaultStartId;
+        }
+
         private void ObjectImport_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             List<ShowList> selectedItems = ObjListView.SelectedItems.Cast<ShowList>().ToList();
@@ -313,7 +318,7 @@ namespace Assets_Editor
                     {
                         CurrentObjectAppearance = ImportAppearances.Outfit.FirstOrDefault(o => o.Id == item.Id).Clone();
                         updateObjectAppearanceSprite(CurrentObjectAppearance, MainSprStorage);
-                        CurrentObjectAppearance.Id = (uint)MainWindow.appearances.Outfit.Count + 1;
+                        CurrentObjectAppearance.Id = GetNextAvailableId(MainWindow.appearances.Outfit.ToList(), 1);
                         MainWindow.appearances.Outfit.Add(CurrentObjectAppearance);
                         _editor.ThingsOutfit.Add(new ShowList() { Id = CurrentObjectAppearance.Id });
                     }
@@ -321,7 +326,7 @@ namespace Assets_Editor
                     {
                         CurrentObjectAppearance = ImportAppearances.Object.FirstOrDefault(o => o.Id == item.Id).Clone();
                         updateObjectAppearanceSprite(CurrentObjectAppearance, MainSprStorage);
-                        CurrentObjectAppearance.Id = (uint)MainWindow.appearances.Object.Count + 100;
+                        CurrentObjectAppearance.Id = GetNextAvailableId(MainWindow.appearances.Object.ToList(), 100);
                         MainWindow.appearances.Object.Add(CurrentObjectAppearance);
                         _editor.ThingsItem.Add(new ShowList() { Id = CurrentObjectAppearance.Id });
                     }
@@ -329,7 +334,7 @@ namespace Assets_Editor
                     {
                         CurrentObjectAppearance = ImportAppearances.Effect.FirstOrDefault(o => o.Id == item.Id).Clone();
                         updateObjectAppearanceSprite(CurrentObjectAppearance, MainSprStorage);
-                        CurrentObjectAppearance.Id = (uint)MainWindow.appearances.Effect.Count + 1;
+                        CurrentObjectAppearance.Id = GetNextAvailableId(MainWindow.appearances.Effect.ToList(), 1);
                         MainWindow.appearances.Effect.Add(CurrentObjectAppearance);
                         _editor.ThingsEffect.Add(new ShowList() { Id = CurrentObjectAppearance.Id });
                     }
@@ -337,7 +342,7 @@ namespace Assets_Editor
                     {
                         CurrentObjectAppearance = ImportAppearances.Missile.FirstOrDefault(o => o.Id == item.Id).Clone();
                         updateObjectAppearanceSprite(CurrentObjectAppearance, MainSprStorage);
-                        CurrentObjectAppearance.Id = (uint)MainWindow.appearances.Missile.Count + 1;
+                        CurrentObjectAppearance.Id = GetNextAvailableId(MainWindow.appearances.Missile.ToList(), 1);
                         MainWindow.appearances.Missile.Add(CurrentObjectAppearance);
                         _editor.ThingsMissile.Add(new ShowList() { Id = CurrentObjectAppearance.Id });
                     }
@@ -390,7 +395,7 @@ namespace Assets_Editor
                         }
                     }
                 }
-                ObjectAppearance.Id = (uint)MainWindow.appearances.Outfit.Count + 1;
+                ObjectAppearance.Id = GetNextAvailableId(MainWindow.appearances.Outfit.ToList(), 1);
                 MainWindow.appearances.Outfit.Add(ObjectAppearance);
                 _editor.ThingsOutfit.Add(new ShowList() { Id = ObjectAppearance.Id });
                 _editor.ObjectMenu.SelectedIndex = 0;
@@ -416,7 +421,7 @@ namespace Assets_Editor
                         if (appearance.AppearanceType == APPEARANCE_TYPE.AppearanceOutfit)
                         {
                             updateObjectAppearanceSprite(appearance, objectSprList);
-                            appearance.Id = (uint)MainWindow.appearances.Outfit.Count + 1;
+                            appearance.Id = GetNextAvailableId(MainWindow.appearances.Outfit.ToList(), 1);
                             MainWindow.appearances.Outfit.Add(appearance);
                             _editor.ThingsOutfit.Add(new ShowList() { Id = appearance.Id });
                             _editor.ObjectMenu.SelectedIndex = 0;
@@ -425,7 +430,7 @@ namespace Assets_Editor
                         else if (appearance.AppearanceType == APPEARANCE_TYPE.AppearanceObject)
                         {
                             updateObjectAppearanceSprite(appearance, objectSprList);
-                            appearance.Id = (uint)MainWindow.appearances.Object.Count + 100;
+                            appearance.Id = GetNextAvailableId(MainWindow.appearances.Object.ToList(), 100);
                             MainWindow.appearances.Object.Add(appearance);
                             _editor.ThingsItem.Add(new ShowList() { Id = appearance.Id });
                             _editor.ObjectMenu.SelectedIndex = 1;
@@ -434,7 +439,7 @@ namespace Assets_Editor
                         else if (appearance.AppearanceType == APPEARANCE_TYPE.AppearanceEffect)
                         {
                             updateObjectAppearanceSprite(appearance, objectSprList);
-                            appearance.Id = (uint)MainWindow.appearances.Effect.Count + 1;
+                            appearance.Id = GetNextAvailableId(MainWindow.appearances.Effect.ToList(), 1);
                             MainWindow.appearances.Effect.Add(appearance);
                             _editor.ThingsEffect.Add(new ShowList() { Id = appearance.Id });
                             _editor.ObjectMenu.SelectedIndex = 2;
@@ -443,7 +448,7 @@ namespace Assets_Editor
                         else if (appearance.AppearanceType == APPEARANCE_TYPE.AppearanceMissile)
                         {
                             updateObjectAppearanceSprite(appearance, objectSprList);
-                            appearance.Id = (uint)MainWindow.appearances.Missile.Count + 1;
+                            appearance.Id = GetNextAvailableId(MainWindow.appearances.Missile.ToList(), 1);
                             MainWindow.appearances.Missile.Add(appearance);
                             _editor.ThingsMissile.Add(new ShowList() { Id = appearance.Id });
                             _editor.ObjectMenu.SelectedIndex = 3;
