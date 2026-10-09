@@ -1096,7 +1096,7 @@ namespace Assets_Editor
             int index = 0;
 
             if (spriteInfo.Animation != null)
-                index = (int)(frames % spriteInfo.Animation.SpritePhase.Count);
+                index = frames % Math.Max(1, spriteInfo.Animation.SpritePhase.Count);
             index = index * (int)spriteInfo.PatternDepth + patternZ;
             index = index * (int)spriteInfo.PatternHeight + patternY;
             index = index * (int)spriteInfo.PatternWidth + patternX;
@@ -1203,8 +1203,14 @@ namespace Assets_Editor
             }
             else if (frameworkElement.Name == "A_SprLayers")
             {
-                spriteInfo.Layers = (uint)A_SprLayers.Value;
-                FixSpritesCount();
+                if (!AppearanceSpriteLayout.TrySetLayers(spriteInfo, (uint)A_SprLayers.Value, blankSpr, out string error))
+                {
+                    isObjectLoaded = false;
+                    A_SprLayers.Value = (int)spriteInfo.Layers;
+                    isObjectLoaded = true;
+                    ErrorManager.ShowError(error);
+                    return;
+                }
                 SprBlendLayer.IsEnabled = A_SprLayers.Value > 1 ? true : false;
             }
             else if (frameworkElement.Name == "A_SprPaternX")
@@ -1707,6 +1713,18 @@ namespace Assets_Editor
             if ((bool)A_FlagRestrictVocPromoted.IsChecked) flags.RestrictToVocation.Add(VOCATION.Promoted);
 
 
+            Appearance savedAppearance;
+            if (ObjectMenu.SelectedIndex == 0)
+            {
+                var source = new Appearances();
+                source.Outfit.Add(CurrentObjectAppearance);
+                if (!TryGetValidatedSnapshot(source, out Appearances saved))
+                    return;
+                savedAppearance = saved.Outfit[0];
+            }
+            else
+                savedAppearance = CurrentObjectAppearance.Clone();
+
             Appearance oldAppearance = null;
 
             if (ObjectMenu.SelectedIndex == 0)
@@ -1723,7 +1741,7 @@ namespace Assets_Editor
                 uint oldTransparency = (oldAppearance.Flags.Transparencylevel != null && oldAppearance.Flags.Transparencylevel.HasLevel) ? oldAppearance.Flags.Transparencylevel.Level : 0;
                 uint currentTransparency = (bool)A_FlagTransparency.IsChecked ? (uint)A_FlagTransparencyLevel.Value : 0;
                 if (oldTransparency != currentTransparency)
-                    SetObjectTransparency(CurrentObjectAppearance, (byte)oldTransparency);
+                    SetObjectTransparency(savedAppearance, (byte)oldTransparency);
             }
             ShowList showList = ObjListView.SelectedItem as ShowList;
 
@@ -1731,25 +1749,25 @@ namespace Assets_Editor
             {
                 int index = MainWindow.appearances.Outfit.ToList().FindIndex(o => o.Id == showList.Id);
                 if (index >= 0)
-                    MainWindow.appearances.Outfit[index] = CurrentObjectAppearance.Clone();
+                    MainWindow.appearances.Outfit[index] = savedAppearance;
             }
             else if (ObjectMenu.SelectedIndex == 1)
             {
                 int index = MainWindow.appearances.Object.ToList().FindIndex(o => o.Id == showList.Id);
                 if (index >= 0)
-                    MainWindow.appearances.Object[index] = CurrentObjectAppearance.Clone();
+                    MainWindow.appearances.Object[index] = savedAppearance;
             }
             else if (ObjectMenu.SelectedIndex == 2)
             {
                 int index = MainWindow.appearances.Effect.ToList().FindIndex(o => o.Id == showList.Id);
                 if (index >= 0)
-                    MainWindow.appearances.Effect[index] = CurrentObjectAppearance.Clone();
+                    MainWindow.appearances.Effect[index] = savedAppearance;
             }
             else if (ObjectMenu.SelectedIndex == 3)
             {
                 int index = MainWindow.appearances.Missile.ToList().FindIndex(o => o.Id == showList.Id);
                 if (index >= 0)
-                    MainWindow.appearances.Missile[index] = CurrentObjectAppearance.Clone();
+                    MainWindow.appearances.Missile[index] = savedAppearance;
             }
 
 
@@ -1851,8 +1869,84 @@ namespace Assets_Editor
             }
         }
 
+        private bool TryGetValidatedSnapshot(Appearances source, out Appearances snapshot,
+            Func<Appearance, bool> includeOutfit = null, bool embedded = false, bool pendingTransparency = false,
+            Dictionary<uint, byte[]> capturedSprites = null)
+        {
+            snapshot = null;
+            try
+            {
+                Appearances copy = source.Clone();
+                IEnumerable<Appearance> outfits = includeOutfit == null ? copy.Outfit : copy.Outfit.Where(includeOutfit);
+                if (capturedSprites != null)
+                {
+                    foreach (Appearance outfit in outfits)
+                        foreach (FrameGroup group in outfit.FrameGroup)
+                            foreach (uint id in group.SpriteInfo.SpriteId)
+                                if (id != 0 && !capturedSprites.ContainsKey(id))
+                                    capturedSprites.Add(id, ReadValidationSpriteBytes(id));
+                }
+                System.Drawing.Bitmap Resolve(uint id) => capturedSprites == null
+                    ? ResolveValidationSprite(id) : OutfitMaskValidator.DecodeSprite(capturedSprites[id]);
+                string error;
+                bool valid = embedded
+                    ? OutfitMaskValidator.TryValidateEmbedded(outfits, out error)
+                    : OutfitMaskValidator.TryValidate(outfits, Resolve, out error);
+                if (valid && pendingTransparency && transparentSheets.Count > 0)
+                {
+                    var alphaChanges = new Dictionary<uint, byte>();
+                    foreach (var change in transparentSheets)
+                        foreach (uint id in change.SpriteIds)
+                            alphaChanges[id] = change.AlphaValue;
+                    valid = OutfitMaskValidator.TryValidate(outfits, Resolve, out error, alphaChanges);
+                }
+                if (!valid)
+                {
+                    ErrorManager.ShowError(error);
+                    return false;
+                }
+                // Persist this validated copy even if a Lua script later edits the live index.
+                snapshot = copy;
+                return true;
+            }
+            catch (Exception exception)
+            {
+                ErrorManager.ShowError($"Could not snapshot and validate outfits. Finish editing and retry. {exception.Message}");
+                return false;
+            }
+        }
+
+        private static System.Drawing.Bitmap ResolveValidationSprite(uint id)
+        {
+            return OutfitMaskValidator.DecodeSprite(ReadValidationSpriteBytes(id));
+        }
+
+        private static byte[] ReadValidationSpriteBytes(uint id)
+        {
+            if (id == 0 || id > int.MaxValue || !MainWindow.SprLists.ContainsKey((int)id))
+                throw new InvalidDataException($"Sprite {id} is missing from the sprite index.");
+            MemoryStream stream = MainWindow.getSpriteStream((int)id);
+            if (!MainWindow.SprLists.TryGetValue((int)id, out MemoryStream cached) || cached == null || !ReferenceEquals(stream, cached))
+                throw new InvalidDataException($"Sprite {id} could not be loaded.");
+            return stream.ToArray();
+        }
+
+        private static ByteString GetExportSpriteData(uint id, System.Drawing.Size emptySize)
+        {
+            if (id != 0)
+                return ByteString.CopyFrom(MainWindow.getSpriteStream((int)id).ToArray());
+
+            // Sprite zero is absence in the client, regardless of the physical catalog entry at zero.
+            using var bitmap = new System.Drawing.Bitmap(emptySize.Width, emptySize.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using var data = new MemoryStream();
+            bitmap.Save(data, System.Drawing.Imaging.ImageFormat.Png);
+            return ByteString.CopyFrom(data.ToArray());
+        }
+
         private void Compile_Click(object sender, RoutedEventArgs e)
         {
+            if (!TryGetValidatedSnapshot(MainWindow.appearances, out Appearances snapshot, pendingTransparency: true))
+                return;
             File.Copy(System.IO.Path.Combine(MainWindow._assetsPath, "catalog-content.json"), System.IO.Path.Combine(MainWindow._assetsPath, "catalog-content.json-bak"), true);
             File.Copy(MainWindow._datPath, MainWindow._datPath + "-bak", true);
             ProcessTransparentSheets();
@@ -1869,7 +1963,7 @@ namespace Assets_Editor
                 serializer.Serialize(file, MainWindow.catalog);
             }
             var output = File.Create(MainWindow._datPath);
-            MainWindow.appearances.WriteTo(output);
+            snapshot.WriteTo(output);
             output.Close();
             StatusBar.MessageQueue?.Enqueue($"Compiled.", null, null, null, false, true, TimeSpan.FromSeconds(2));
         }
@@ -1958,7 +2052,7 @@ namespace Assets_Editor
             return 0;
         }
 
-        private void UpdateAppearanceObject(Appearance appearance, ConcurrentDictionary<string, uint> offset)
+        private void UpdateAppearanceObject(Appearance appearance, ConcurrentDictionary<string, uint> offset, ConcurrentDictionary<uint, int> spriteTypes)
         {
             for (int i = 0; i < appearance.FrameGroup.Count; i++)
             {
@@ -1967,7 +2061,8 @@ namespace Assets_Editor
                 uint Width = 1;
                 uint Height = 1;
                 uint ExactSize = 32;
-                int sliceType = GetSheetType(spriteInfo.SpriteId[0]);
+                uint sizeSpriteId = spriteInfo.SpriteId.FirstOrDefault(id => id != 0);
+                int sliceType = sizeSpriteId != 0 && spriteTypes.TryGetValue(sizeSpriteId, out int type) ? type : 0;
                 if (sliceType == 1)
                 {
                     Width = 1;
@@ -2002,7 +2097,7 @@ namespace Assets_Editor
                 spriteInfo.PatternLayers = spriteInfo.Layers;
                 spriteInfo.PatternZ = spriteInfo.PatternDepth;
                 if (spriteInfo.Animation != null)
-                    spriteInfo.PatternFrames = (uint)spriteInfo.Animation.SpritePhase.Count;
+                    spriteInfo.PatternFrames = (uint)Math.Max(1, spriteInfo.Animation.SpritePhase.Count);
                 else
                     spriteInfo.PatternFrames = 1;
 
@@ -2169,13 +2264,13 @@ namespace Assets_Editor
 
         private async Task ExportAsImages((int min, int max) itemScope, (int min, int max) outfitScope, (int min, int max) effectScope, (int min, int max) missileScope)
         {
+            var capturedSprites = new Dictionary<uint, byte[]>();
+            if (!TryGetValidatedSnapshot(MainWindow.appearances, out Appearances tmpAppearances,
+                outfit => ExportOutfitsCheckBox.IsChecked == true && outfit.Id >= outfitScope.min && outfit.Id <= outfitScope.max,
+                capturedSprites: capturedSprites))
+                return;
             // lock the ui before exporting
             CompileToImagesBox.IsEnabled = false;
-
-            Appearances tmpAppearances = new();
-
-            // access the copy of appearances index
-            tmpAppearances = MainWindow.appearances.Clone();
             var tasks = new List<Task>();
 
             // count the total amount of items to process
@@ -2233,7 +2328,8 @@ namespace Assets_Editor
             });
 
             // outfits
-            EnqueueExportTask(ExportOutfitsCheckBox.IsChecked, "outfits", tmpAppearances.Outfit, outfitScope, ImageExporter.SaveOutfitAsImages, (loopProgress, totalObjects) => {
+            EnqueueExportTask(ExportOutfitsCheckBox.IsChecked, "outfits", tmpAppearances.Outfit, outfitScope,
+                (path, outfit) => ImageExporter.SaveOutfitAsImages(path, outfit, id => capturedSprites[id]), (loopProgress, totalObjects) => {
                 ExportOutfitsProgressText.Text = $"{loopProgress}/{totalObjects}";
             });
 
@@ -2256,11 +2352,10 @@ namespace Assets_Editor
 
         private async Task ExportLegacy(IProgress<int> progress)
         {
-            CompileBox.IsEnabled = false;
             SpriteStorage tmpSprStorage = new();
-            Appearances tmpAppearances = new();
             ConcurrentDictionary<int, List<MemoryStream>> SlicedSprList = [];
             ConcurrentDictionary<string, uint> SpriteOffsetList = [];
+            ConcurrentDictionary<uint, int> spriteTypes = [];
             bool transparent = C_Transparent.IsChecked ?? false;
 
             string datfile = MainWindow._assetsPath + "Tibia.dat";
@@ -2270,18 +2365,30 @@ namespace Assets_Editor
                 return;
             }
 
+            var capturedSprites = new Dictionary<uint, byte[]>();
+            if (!TryGetValidatedSnapshot(MainWindow.appearances, out Appearances tmpAppearances, capturedSprites: capturedSprites))
+                return;
+            var spriteCatalog = MainWindow.catalog.Select(sheet => new MainWindow.Catalog {
+                Type = sheet.Type, File = sheet.File, SpriteType = sheet.SpriteType,
+                FirstSpriteid = sheet.FirstSpriteid, LastSpriteid = sheet.LastSpriteid
+            }).ToList();
+            // The legacy format also reserves zero for an absent sprite in every slice.
+            for (int slice = 0; slice < 4; slice++)
+                SpriteOffsetList[$"0_{slice}"] = 0;
+            CompileBox.IsEnabled = false;
+
             // write DAT
             await Task.Run(() =>
             {
                 int percentageComplete = 0;
                 int currentPercentage = 0;
-                int FullProgress = MainWindow.catalog.Count;
+                int FullProgress = spriteCatalog.Count;
                 var options = new ParallelOptions()
                 {
                     MaxDegreeOfParallelism = Environment.ProcessorCount
                 };
                 int progressCount = 0;
-                Parallel.ForEach(MainWindow.catalog, options, (sheet, state) =>
+                Parallel.ForEach(spriteCatalog, options, (sheet, state) =>
                 {
                     if (sheet.Type == "sprite")
                     {
@@ -2293,7 +2400,11 @@ namespace Assets_Editor
                         }
                         for (int i = sheet.FirstSpriteid; i <= sheet.LastSpriteid; i++)
                         {
-                            System.Drawing.Bitmap bitmap = new(MainWindow.getSpriteStream(i));
+                            if (i == 0)
+                                continue;
+                            using System.Drawing.Bitmap bitmap = capturedSprites.TryGetValue((uint)i, out byte[] pixels)
+                                ? OutfitMaskValidator.DecodeSprite(pixels) : new System.Drawing.Bitmap(MainWindow.getSpriteStream(i));
+                            spriteTypes[(uint)i] = SpriteSizes.IndexOf(bitmap.Size);
                             List<System.Drawing.Bitmap> slices = SplitImage(bitmap);
                             SlicedSprList[i] = [];
                             for (int j = 0; j < slices.Count; j++)
@@ -2309,7 +2420,7 @@ namespace Assets_Editor
                                 {
                                     SlicedSprList[i].Add(null);
                                 }
-
+                                slices[j].Dispose();
                             }
                         }
                         progressCount++;
@@ -2345,8 +2456,6 @@ namespace Assets_Editor
                 }
 
 
-                tmpAppearances = MainWindow.appearances.Clone();
-
                 uint ObjectCount = tmpAppearances.Object.Max(a => a.Id);
                 uint OutfitCount = tmpAppearances.Outfit.Max(a => a.Id);
                 uint EffectCount = tmpAppearances.Effect.Max(a => a.Id);
@@ -2370,7 +2479,7 @@ namespace Assets_Editor
                             if (appearance.Flags.Hook.Direction == HOOK_TYPE.East)
                                 appearance.Flags.HookEast = true;
                         }
-                        UpdateAppearanceObject(appearance, SpriteOffsetList);
+                        UpdateAppearanceObject(appearance, SpriteOffsetList, spriteTypes);
                     }
                 }
                 for (uint i = 1; i <= OutfitCount; i++)
@@ -2384,7 +2493,7 @@ namespace Assets_Editor
                     else
                     {
                         appearance.AppearanceType = APPEARANCE_TYPE.AppearanceOutfit;
-                        UpdateAppearanceObject(appearance, SpriteOffsetList);
+                        UpdateAppearanceObject(appearance, SpriteOffsetList, spriteTypes);
                     }
                 }
                 for (uint i = 1; i <= EffectCount; i++)
@@ -2398,7 +2507,7 @@ namespace Assets_Editor
                     else
                     {
                         appearance.AppearanceType = APPEARANCE_TYPE.AppearanceEffect;
-                        UpdateAppearanceObject(appearance, SpriteOffsetList);
+                        UpdateAppearanceObject(appearance, SpriteOffsetList, spriteTypes);
                     }
                 }
                 for (uint i = 1; i <= MissileCount; i++)
@@ -2412,7 +2521,7 @@ namespace Assets_Editor
                     else
                     {
                         appearance.AppearanceType = APPEARANCE_TYPE.AppearanceMissile;
-                        UpdateAppearanceObject(appearance, SpriteOffsetList);
+                        UpdateAppearanceObject(appearance, SpriteOffsetList, spriteTypes);
                     }
                 }
 
@@ -3675,9 +3784,17 @@ namespace Assets_Editor
 
                     for (int i = 0; i < appearance.FrameGroup.Count; i++)
                     {
+                        SpriteInfo info = appearance.FrameGroup[i].SpriteInfo;
+                        uint sizeSpriteId = info.SpriteId.FirstOrDefault(id => id != 0);
+                        System.Drawing.Size emptySize = new(64, 64);
+                        if (sizeSpriteId != 0 && info.SpriteId.Contains(0))
+                        {
+                            using System.Drawing.Bitmap reference = ResolveValidationSprite(sizeSpriteId);
+                            emptySize = reference.Size;
+                        }
                         for (int s = 0; s < appearance.FrameGroup[i].SpriteInfo.SpriteId.Count; s++)
                         {
-                            ByteString sprData = ByteString.CopyFrom(MainWindow.getSpriteStream((int)appearance.FrameGroup[i].SpriteInfo.SpriteId[s]).ToArray());
+                            ByteString sprData = GetExportSpriteData(info.SpriteId[s], emptySize);
                             appearance.SpriteData.Add(sprData);
                             appearance.FrameGroup[i].SpriteInfo.SpriteId[s] = exportSprCounter;
                             exportSprCounter++;
@@ -3696,6 +3813,9 @@ namespace Assets_Editor
                 return;
             }
 
+            if (!TryGetValidatedSnapshot(exportObjects, out Appearances snapshot, embedded: true))
+                return;
+
             FolderBrowserDialog exportPath = new() {
                 ClientGuid = Globals.GUID_DatEditor4
             };
@@ -3703,7 +3823,7 @@ namespace Assets_Editor
             {
                 string fullPath = Path.Combine(exportPath.SelectedPath, "Appearances.aec");
                 var output = File.Create(fullPath);
-                exportObjects.WriteTo(output);
+                snapshot.WriteTo(output);
                 output.Close();
                 AddExportObjectCounter.Badge = 0;
                 exportSprCounter = 0;

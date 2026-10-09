@@ -2,6 +2,7 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using Tibia.Protobuf.Appearances;
 using System;
 using ImageMagick;
@@ -234,11 +235,21 @@ public static class ImageExporter {
     /// <param name="exportPath">path where export action is occurring</param>
     /// <param name="appearance">outfit to be exported</param>
     public static void SaveOutfitAsImages(string exportPath, Appearance appearance) {
+        SaveOutfitAsImages(exportPath, appearance, id => MainWindow.getSpriteStream((int)id).ToArray());
+    }
+
+    public static void SaveOutfitAsImages(string exportPath, Appearance appearance, Func<uint, byte[]> readSprite) {
         string outfitPath = Path.Combine(exportPath, Convert.ToString(appearance.Id));
         Directory.CreateDirectory(outfitPath);
 
         foreach (var frameGroup in appearance.FrameGroup) {
             var spriteInfo = frameGroup.SpriteInfo;
+            Size emptySize = new(64, 64);
+            uint sizeSpriteId = spriteInfo.SpriteId.FirstOrDefault(id => id != 0);
+            if (sizeSpriteId != 0 && spriteInfo.SpriteId.Contains(0)) {
+                using Bitmap reference = OutfitMaskValidator.DecodeSprite(readSprite(sizeSpriteId));
+                emptySize = reference.Size;
+            }
 
             for (int height = 0; height < spriteInfo.PatternHeight; ++height) {
                 for (int depth = 0; depth < spriteInfo.PatternDepth; ++depth) {
@@ -256,8 +267,9 @@ public static class ImageExporter {
                                     // and will make the idle animation show a wrong frame
                                     string fileName = $"{frameGroup.Id}_{height + 1}_{depth + 1}_{width + 1}_{frames + 1}{(layers == 1 ? "_template" : "")}.png";
 
-                                    var bitmapImage = Utils.BitmapToBitmapImage(MainWindow.getSpriteStream((int)spriteInfo.SpriteId[index]));
-                                    Bitmap bitmap = new(bitmapImage.StreamSource);
+                                    uint spriteId = spriteInfo.SpriteId[index];
+                                    using Bitmap bitmap = spriteId == 0 ? new Bitmap(emptySize.Width, emptySize.Height, PixelFormat.Format32bppArgb)
+                                        : OutfitMaskValidator.DecodeSprite(readSprite(spriteId));
 
                                     // ensure the bitmap supports transparency  
                                     Bitmap transparentBitmap = new(bitmap.Width, bitmap.Height, PixelFormat.Format32bppArgb);
@@ -266,7 +278,6 @@ public static class ImageExporter {
                                     g.DrawImage(bitmap, 0, 0, bitmap.Width, bitmap.Height);
                                     transparentBitmap.Save(Path.Combine(outfitPath, fileName), ImageFormat.Png);
                                     transparentBitmap.Dispose();
-                                    bitmap.Dispose();
                                 } catch (Exception ex) {
                                     MainWindow.Log($"Failed to save image {frameGroup.Id} {height} {depth} {width} {frames} {layers} for object {appearance.Id}: {ex.Message}");
                                 }
